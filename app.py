@@ -2,10 +2,13 @@ from flask import Flask, request, jsonify
 from database import db
 from models.user import User
 from flask_login import LoginManager, login_user, current_user, logout_user, login_required
+import bcrypt
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'xd235xcd4xd64863468qw'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:admin123@127.0.0.1:3306/flask-crud'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 
 login_manager = LoginManager()
 db.init_app(app)
@@ -25,7 +28,7 @@ def login():
 
     if username and password:
         user = User.query.filter_by(username=username).first()
-        if user and user.password == password:
+        if user and bcrypt.checkpw(str.encode(password), str.encode(user.password)):
             login_user(user)
             print(current_user.is_authenticated)
             return jsonify({"message": "Autenticação realizada com sucesso"})
@@ -39,14 +42,14 @@ def logout():
     return jsonify({"message": "Logout realizado com sucesso"})
 
 @app.route("/user", methods=["POST"])
-@login_required
 def create_user():
     data = request.json
     username = data.get("username")
     password = data.get("password")
 
     if username and password:
-        user = User(username=username, password=password)
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
+        user = User(username=username, password=hashed_password, role='user')
         db.session.add(user)
         db.session.commit()
         return jsonify({"message": "Usuário cadastrado com sucesso"})
@@ -69,6 +72,9 @@ def update_user(id):
     data = request.json
     user = User.query.get(id)
 
+    if id != current_user.id and current_user.role == "user":
+        return jsonify({"message": "Operação não autorizada"}), 404
+
     if user and data.get("password"):
         user.password = data.get("password")
         db.session.commit()
@@ -80,6 +86,9 @@ def update_user(id):
 @login_required
 def delete_user(id):
     user = User.query.get(id)
+
+    if current_user.role != "admin":
+        return jsonify({"message": "Deleção não permitida"}), 404
 
     if user and id != current_user.id:
         db.session.remove(user)
